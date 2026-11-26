@@ -1,5 +1,5 @@
-import {ABILITIES,INTERVALS,abilityName,uid,day,addDays,clone,seedState,freshState,overall,isWrong,pending,eligibleTasks,markAnswer,deleteWord,dismissWord,restoreDismissedWord,isExcluded,filterWords,parseImport,importRows,addWord,makeDictation,settleSession,csv,validateBackup} from './core.js';
-import {speak,stopSpeech,voices} from './speech.js';
+import {ABILITIES,INTERVALS,abilityName,uid,day,addDays,clone,seedState,freshState,overall,isWrong,pending,eligibleTasks,markAnswer,deleteWord,dismissWord,restoreDismissedWord,isExcluded,filterWords,parseImport,importRows,addWord,makeDictation,settleSession,csv,validateBackup} from './core.js?v=2';
+import {speak,stopSpeech,voices} from './speech.js?v=2';
 
 const KEY='suipage.data.v1';
 const $=selector=>document.querySelector(selector);
