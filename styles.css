@@ -8,3 +8,8 @@
 @media(max-width:720px){.flashcard{min-height:306px}.word-content{min-height:180px}.word-content .english{font-size:38px}}
 .form-grid>.full{grid-column:1/-1}
 @media(min-width:1100px){.flashcard{min-height:310px}.word-content{min-height:170px;padding:20px 0 12px}}
+.mastered-action{grid-column:1/-1;background:var(--surface);border-color:var(--line);color:var(--green);min-height:44px}
+.mastered-action span{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:center}
+.mastered-action small{font-size:10px;font-weight:400;color:var(--muted)}
+.flashcard.study-card{min-height:250px}.study-card .word-content{min-height:130px;padding:18px 0 12px}
+@media(max-width:720px){.flashcard.study-card{min-height:240px}.study-card .word-content{min-height:125px}}

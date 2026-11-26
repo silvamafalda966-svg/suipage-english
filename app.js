@@ -1,4 +1,4 @@
-import {ABILITIES,INTERVALS,abilityName,uid,day,addDays,clone,seedState,freshState,overall,isWrong,pending,eligibleTasks,markAnswer,deleteWord,filterWords,parseImport,importRows,addWord,makeDictation,settleSession,csv,validateBackup} from './core.js';
+import {ABILITIES,INTERVALS,abilityName,uid,day,addDays,clone,seedState,freshState,overall,isWrong,pending,eligibleTasks,markAnswer,deleteWord,dismissWord,restoreDismissedWord,isExcluded,filterWords,parseImport,importRows,addWord,makeDictation,settleSession,csv,validateBackup} from './core.js';
 import {speak,stopSpeech,voices} from './speech.js';
 
 const KEY='suipage.data.v1';
@@ -41,10 +41,10 @@ function learnPage(){
   const counts=`<div class="stat-strip"><div class="stat"><strong>${new Set(due.map(t=>t.wordId)).size}</strong><small>词</small><span>待复习 · ${due.length} 项</span></div><div class="stat-divider"></div><div class="stat"><strong>${uniqueDone}</strong><small>词</small><span>今日已练</span></div><div class="stat-divider"></div><div class="stat"><strong>${state.words.filter(w=>overall(w)==='mastered').length}</strong><small>词</small><span>稳定掌握</span></div></div>`;
   const s=ui.study,w=s?.current?wordById(s.current.wordId):null;
   let card='';
-  if(s&&!w){card=empty('这一轮，记得更牢了',`已练 ${s.completed} 次。不会的词已安排明天再测；另一个方向的待办会继续保留。`,action('restart-study','回到今日学习'));}
-  else if(w){const p=w.recognition;card=`<div class="flashcard" id="flashcard"><div class="swipe-label know">认识</div><div class="swipe-label unknown">看释义</div><div class="card-meta"><div class="pills"><span class="pill">${w.type==='phrase'?'短语':'单词'}</span><span class="pill green">${s.current.mode==='reinforcement'?'当天补练 · 不升级':s.current.mode==='practice'?'自由练习 · 不升级':'理解 · 阶段 '+p.stage}</span></div>${action('star',icon('star'),'icon-button star '+(w.isStarred?'active':''),`data-id="${w.id}" aria-label="${w.isStarred?'取消重点':'标记重点'}"`)}</div><div class="word-content"><h2 class="english">${esc(w.english)}</h2>${action('pronounce',icon('sound'),'icon-button pronounce',`data-id="${w.id}" aria-label="朗读英文"`)}${s.revealed?`<div class="answer"><p class="meaning">${esc(w.chinese)}</p>${w.example?`<p class="example">${esc(w.example)}</p>`:''}</div>`:''}</div><div class="card-foot"><span>${icon('clock')}${s.revealed?'需要提示，明天再测':esc(s.current.reason||'按自己的节奏，主动回想')}</span><span>本轮第 ${s.completed+1} 张</span></div></div><div class="study-controls">${s.revealed?action('learn-next',`记住了，继续 ${icon('arrow')}`,'button full','style="grid-column:1/-1"'):action('learn-known',`${icon('left')} 认识`)+action('learn-reveal',`看释义 ${icon('right')}`,'button warm')}</div><div class="under-card">${action('undo',`${icon('undo')} 撤回上一步`,'text-button',ui.undo?'':'disabled')}${action('word-detail','查看记录','text-button',`data-id="${w.id}"`)}</div><p class="hint">左滑认识 · 右滑看释义${s.revealed?' · 再右滑继续':''}</p>`;}
+  if(s&&!w){card=empty('这一轮，记得更牢了',`已练 ${s.completed} 次。不会的词已安排明天再测；另一个方向的待办会继续保留。`,action('restart-study','回到今日学习'))+(ui.undo?action('undo',`${icon('undo')} 撤回上一步`,'button secondary full'):'');}
+  else if(w){const p=w.recognition;card=`<div class="flashcard study-card" id="flashcard"><div class="swipe-label know">认识</div><div class="swipe-label unknown">看释义</div><div class="card-meta"><div class="pills"><span class="pill">${w.type==='phrase'?'短语':'单词'}</span><span class="pill green">${s.current.mode==='reinforcement'?'当天补练 · 不升级':s.current.mode==='practice'?'自由练习 · 不升级':'理解 · 阶段 '+p.stage}</span></div>${action('star',icon('star'),'icon-button star '+(w.isStarred?'active':''),`data-id="${w.id}" aria-label="${w.isStarred?'取消重点':'标记重点'}"`)}</div><div class="word-content"><h2 class="english">${esc(w.english)}</h2>${action('pronounce',icon('sound'),'icon-button pronounce',`data-id="${w.id}" aria-label="朗读英文"`)}${s.revealed?`<div class="answer"><p class="meaning">${esc(w.chinese)}</p>${w.example?`<p class="example">${esc(w.example)}</p>`:''}</div>`:''}</div><div class="card-foot"><span>${icon('clock')}${s.revealed?'需要提示，明天再测':esc(s.current.reason||'按自己的节奏，主动回想')}</span><span>本轮第 ${s.completed+1} 张</span></div></div><div class="study-controls">${s.revealed?action('learn-next',`记住了，继续 ${icon('arrow')}`,'button full','style="grid-column:1/-1"'):action('learn-known',`${icon('left')} 认识`)+action('learn-reveal',`看释义 ${icon('right')}`,'button warm')}${action('learn-mastered',`${icon('check')} <span>完全掌握，不再出现<small>从词库删除</small></span>`,'button mastered-action',`data-id="${w.id}"`)}</div><div class="under-card">${action('undo',`${icon('undo')} 撤回上一步`,'text-button',ui.undo?'':'disabled')}${action('word-detail','查看记录','text-button',`data-id="${w.id}"`)}</div><p class="hint">左滑认识 · 右滑看释义${s.revealed?' · 再右滑继续':''}</p>`;}
   else {const available=eligibleTasks(state,today,'recognition').length;card=`<div class="flashcard"><div class="card-meta"><span class="pill green">理解练习</span><span class="subtle">${new Intl.DateTimeFormat('zh-CN',{month:'long',day:'numeric',weekday:'short'}).format(new Date())}</span></div><div class="word-content"><p class="eyebrow">ONE PAGE AT A TIME</p><h2 class="english" style="font-size:36px">A little,<br>every day.</h2><p class="subtle" style="margin-top:15px">留一点时间，给记忆生长。</p></div><div class="card-foot"><span>${icon('clock')}今天可开始 ${available} 项理解练习</span><span>每轮最多 20 张</span></div></div><div class="study-controls">${action('start-study',`${icon('play')} 开始背词`,'button','style="grid-column:1/-1"')}</div><p class="hint">先想出意思，再判断是否认识。</p>`;}
-  return header('YOUR DAILY ENGLISH','每天一点，<br class="mobile-only">慢慢记牢。','不赶进度，让每一次练习都有回响。',calendar)+`<div class="learning-layout"><section>${counts}<div class="section-line"><h2>${s?'正在背词':'今日学习'}</h2>${s?action('end-study','结束本轮','text-button'):`<select class="scope-select" aria-label="背词范围" id="study-scope">${option('due','今日计划 · 到期优先',ui.scope)}${option('all','自由练习 · 全部词库',ui.scope)}${option('star','自由练习 · 重点词',ui.scope)}${option('wrong','自由练习 · 易错词',ui.scope)}${option('learning','自由练习 · 未掌握',ui.scope)}${option('word','自由练习 · 单词',ui.scope)}${option('phrase','自由练习 · 短语',ui.scope)}</select>`}</div>${card}${state.words.some(w=>w.isDemo)?`<div class="tiny-banner"><span>已准备 10 条示例，先试试手感。</span>${action('clear-demo','清除示例','text-button')}</div>`:''}</section><aside class="side-panel"><div class="note-panel"><p class="eyebrow">A GENTLE ROUTINE</p><h3>记忆，有自己的节奏。</h3><div class="timeline-item"><i class="timeline-dot"></i><div><strong>先理解，再默写</strong><p>两种能力，分别记录。</p></div></div><div class="timeline-item"><i class="timeline-dot hollow"></i><div><strong>难词，隔一会再见</strong><p>当天补练，明天再测。</p></div></div><div class="timeline-item"><i class="timeline-dot hollow"></i><div><strong>熟词，留一点间隔</strong><p>1 / 3 / 7 / 14 / 30 / 60 天。</p></div></div>${action('calendar',`查看我的复习安排 ${icon('arrow')}`,'aside-link')}</div><div class="daily-quote">“Small steps.<br>Lasting words.”<p>今天记住的一点，会慢慢积累。</p></div><div class="subtle" style="font-size:10px;padding:0 5px">${due.filter(t=>t.due<today).length} 项逾期待办会继续保留。<br>本轮完成后，仍可继续下一轮。</div></aside></div>`;
+  return header('YOUR DAILY ENGLISH',s?'先回想。':'每天一点，<br class="mobile-only">慢慢记牢。','不赶进度，让每一次练习都有回响。',calendar)+`<div class="learning-layout"><section>${counts}<div class="section-line"><h2>${s?'正在背词':'今日学习'}</h2>${s?action('end-study','结束本轮','text-button'):`<select class="scope-select" aria-label="背词范围" id="study-scope">${option('due','今日计划 · 到期优先',ui.scope)}${option('all','自由练习 · 全部词库',ui.scope)}${option('star','自由练习 · 重点词',ui.scope)}${option('wrong','自由练习 · 易错词',ui.scope)}${option('learning','自由练习 · 未掌握',ui.scope)}${option('word','自由练习 · 单词',ui.scope)}${option('phrase','自由练习 · 短语',ui.scope)}</select>`}</div>${card}${state.words.some(w=>w.isDemo)?`<div class="tiny-banner"><span>还有 ${state.words.filter(w=>w.isDemo).length} 条示例，可先体验。</span>${action('clear-demo','清除示例','text-button')}</div>`:''}</section><aside class="side-panel"><div class="note-panel"><p class="eyebrow">A GENTLE ROUTINE</p><h3>记忆，有自己的节奏。</h3><div class="timeline-item"><i class="timeline-dot"></i><div><strong>先理解，再默写</strong><p>两种能力，分别记录。</p></div></div><div class="timeline-item"><i class="timeline-dot hollow"></i><div><strong>难词，隔一会再见</strong><p>当天补练，明天再测。</p></div></div><div class="timeline-item"><i class="timeline-dot hollow"></i><div><strong>熟词，留一点间隔</strong><p>1 / 3 / 7 / 14 / 30 / 60 天。</p></div></div>${action('calendar',`查看我的复习安排 ${icon('arrow')}`,'aside-link')}</div><div class="daily-quote">“Small steps.<br>Lasting words.”<p>今天记住的一点，会慢慢积累。</p></div><div class="subtle" style="font-size:10px;padding:0 5px">${due.filter(t=>t.due<today).length} 项逾期待办会继续保留。<br>本轮完成后，仍可继续下一轮。</div></aside></div>`;
 }
 function scopeOptions(current){return option('due','今日到期',current)+option('all','全部词库',current)+option('word','仅单词',current)+option('phrase','仅短语',current)+option('star','重点词',current)+option('learning','未掌握',current)+option('wrong','易错词',current)+option('date','指定导入日期',current);}
 function currentSession(){return state.sessions.find(s=>s.id===ui.sessionId);}
@@ -91,6 +91,7 @@ function calendarBody(){
 
 function nextStudy(){
   const s=ui.study;if(!s)return;
+  s.queue=s.queue.filter(item=>wordById(item.wordId));
   let index=s.queue.findIndex(i=>i.mode==='reinforcement'&&i.readyAt<=s.completed);
   if(index<0)index=s.queue.findIndex(i=>i.mode!=='reinforcement');
   if(index<0)index=0;
@@ -115,7 +116,20 @@ function answerLearn(correct){
   if(correct){s.completed++;nextStudy();}
   else{s.revealed=true;stopSpeech();render();}
 }
-function undoLearn(){const u=ui.undo,w=wordById(u?.wordId);if(!w)return;
+function dismissLearn(id){
+  const s=ui.study,w=wordById(s?.current?.wordId);if(!w||w.id!==id)return;
+  const studyBefore=clone(s);
+  const snapshot=commit(()=>dismissWord(state,w.id));
+  ui.undo={kind:'dismiss',snapshot,study:studyBefore};
+  s.queue=s.queue.filter(item=>wordById(item.wordId));s.completed++;stopSpeech();nextStudy();
+  toast(`已移除 ${w.english}，以后不再出现；可撤回上一步`);
+}
+function undoLearn(){const u=ui.undo;if(!u)return;
+  if(u.kind==='dismiss'){
+    commit(()=>restoreDismissedWord(state,u.snapshot));
+    ui.study=clone(u.study);ui.undo=null;render();toast('已撤回移除，词条及原有计划已恢复');return;
+  }
+  const w=wordById(u.wordId);if(!w)return;
   commit(()=>{w.recognition=clone(u.progress);state.tasks=state.tasks.filter(t=>!(t.wordId===w.id&&t.ability==='recognition')).concat(clone(u.tasks));state.events=state.events.filter(e=>!(e.wordId===w.id&&e.ability==='recognition')||u.eventIds.includes(e.id));});
   ui.study=clone(u.study);ui.undo=null;render();toast('已撤回学习结果，重点标记保持不变');
 }
@@ -178,6 +192,7 @@ async function handleAction(name,el){
     case 'star':commit(()=>{const w=wordById(el.dataset.id);if(w)w.isStarred=!w.isStarred;});render();break;
     case 'start-study':startStudy();break;
     case 'learn-known':answerLearn(true);break;
+    case 'learn-mastered':dismissLearn(el.dataset.id);break;
     case 'learn-reveal':answerLearn(false);break;
     case 'learn-next':if(ui.study?.revealed){ui.study.completed++;nextStudy();}break;
     case 'end-study':case 'restart-study':stopSpeech();ui.study=null;ui.undo=null;render();break;
@@ -193,7 +208,7 @@ async function handleAction(name,el){
     case 'clear-demo':if(confirm('清除示例词条及其学习记录？你自行导入的内容会保留。')){cancelPlayback();commit(()=>{const ids=state.words.filter(w=>w.isDemo).map(w=>w.id);ids.forEach(id=>deleteWord(state,id));for(const s of state.sessions){s.items=s.items.filter(i=>!ids.includes(i.wordId));s.index=Math.min(s.index,s.items.length);if(!s.items.length){s.settled=true;s.phase='done';}else if(s.phase==='playing')s.phase='paused';}});ui.study=null;ui.undo=null;render();toast('示例已清除，不会再次自动添加');}break;
     case 'paste':try{ui.importText=await navigator.clipboard.readText();ui.preview=null;render();toast('已读取，可检查内容后解析');}catch{toast('浏览器未允许读取，请长按文本框粘贴');}break;
     case 'parse':ui.importText=$('#import-text').value;ui.preview=parseImport(ui.importText);render();break;
-    case 'import-confirm':{if(!ui.preview?.rows.length||ui.preview.errors.length)return;const rows=ui.preview.rows;if(rows.some(r=>!r.english.trim()||!r.chinese.trim()))throw new Error('预览中仍有空的英文或中文');const r=commit(()=>importRows(state,rows,ui.overwrite));ui.preview=null;ui.importText='';render();toast(`新增 ${r.added} 条 · 更新 ${r.updated} 条 · 跳过 ${r.skipped} 条`);break;}
+    case 'import-confirm':{if(!ui.preview?.rows.length||ui.preview.errors.length)return;const rows=ui.preview.rows;if(rows.some(r=>!r.english.trim()||!r.chinese.trim()))throw new Error('预览中仍有空的英文或中文');const r=commit(()=>importRows(state,rows,ui.overwrite));ui.preview=null;ui.importText='';render();toast(`新增 ${r.added} 条 · 更新 ${r.updated} 条 · 跳过 ${r.skipped} 条${r.excluded?` · 不再出现 ${r.excluded} 条`:""}`);break;}
     case 'copy-export':{const text=exportText();try{await navigator.clipboard.writeText(text);toast('复习清单已复制');}catch{download(text,`复习清单-${day()}.txt`);toast('剪贴板不可用，已改为下载 TXT');}break;}
     case 'export-txt':download(exportText(),`复习清单-${day()}.txt`);break;
     case 'export-csv':download(csv(filtered()),`复习清单-${day()}.csv`,'text/csv;charset=utf-8');break;
@@ -217,7 +232,7 @@ async function handleAction(name,el){
 }
 function exportText(){return filtered().map(w=>`${w.english} | ${w.chinese} | ${w.type==='phrase'?'短语':'单词'} | 理解 ${w.recognition.stage}/6 · 拼写 ${w.spelling.stage}/6${w.isStarred?' | 重点':''}`).join('\n');}
 document.addEventListener('click',async e=>{
-  const nav=e.target.closest('[data-tab]');if(nav){try{pauseSession();ui.tab=nav.dataset.tab;render();window.scrollTo({top:0,behavior:'instant'});}catch(err){toast(err.message);}return;}
+  const nav=e.target.closest('[data-tab]');if(nav){try{pauseSession();if(nav.dataset.tab!=='learn'&&ui.undo?.kind==='dismiss')ui.undo=null;ui.tab=nav.dataset.tab;render();window.scrollTo({top:0,behavior:'instant'});}catch(err){toast(err.message);}return;}
   if(e.target.closest('.brand')){e.preventDefault();try{pauseSession();ui.tab='learn';render();}catch(err){toast(err.message);}return;}
   const button=e.target.closest('[data-action]');if(!button||button.disabled)return;
   try{await handleAction(button.dataset.action,button);}catch(err){if(err.message!=='cancelled')toast(err.message);}
@@ -227,6 +242,7 @@ document.addEventListener('submit',e=>{
   try{
     if(form.id==='word-form'){
       const input=Object.fromEntries(new FormData(form));input.english=input.english.trim();input.chinese=input.chinese.trim();if(!input.english||!input.chinese)throw new Error('英文和中文都需要填写');
+      if(isExcluded(state,input.english))throw new Error('这个词已设为不再出现，无法重新加入');
       commit(()=>{if(form.dataset.id)Object.assign(wordById(form.dataset.id),input);else addWord(state,input);});closeModal();render();toast('词条已保存');
     }else if(form.id==='dictation-form'){
       if(state.sessions.some(s=>!s.settled)){toast('请先继续并结算上次听写，避免遗漏记录');return;}

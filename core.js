@@ -12,13 +12,14 @@ export function addDays(date, amount) {
 export const clone = value => JSON.parse(JSON.stringify(value));
 export const normalize = text => text.normalize('NFKC').trim().replace(/\s+/g,' ').toLowerCase();
 export function freshState() {
-  return {schemaVersion:VERSION, words:[], tasks:[], events:[], sessions:[], settings:{theme:'light',newLimit:10,autoRead:false,rate:0.9,repeats:2,gap:3.5,screenMode:false,voiceEn:'',voiceZh:''},initialized:true};
+  return {schemaVersion:VERSION, words:[], tasks:[], events:[], sessions:[], excludedWords:[], settings:{theme:'light',newLimit:10,autoRead:false,rate:0.9,repeats:2,gap:3.5,screenMode:false,voiceEn:'',voiceZh:''},initialized:true};
 }
 export function progress() {return {stage:0,lastPromoted:null,lastFailure:null,wrongCount:0,wrongStreak:0,rightStreak:0,easyMistake:false,lastFormalDay:null};}
 export function schedule(state,wordId,ability,due,reason,createdOn) {
   const task={id:uid(),wordId,ability,due,reason,createdOn,status:'pending',completedOn:null,result:null}; state.tasks.push(task); return task;
 }
 export function addWord(state, input, date=day()) {
+  if(isExcluded(state,input.english))throw new Error('这个词已设为不再出现，无法重新加入');
   const word={id:uid(),english:input.english.trim(),chinese:input.chinese.trim(),type:input.type||(/\s/.test(input.english.trim())?'phrase':'word'),example:input.example?.trim()||'',prompt:input.prompt?.trim()||'',importDate:date,lastImportDate:date,isStarred:false,isDemo:!!input.isDemo,recognition:progress(),spelling:progress()};
   state.words.push(word); ABILITIES.forEach(a=>schedule(state,word.id,a,date,'首次学习',date)); return word;
 }
@@ -76,6 +77,37 @@ export function markAnswer(state,wordId,ability,correct,options={}) {
 }
 export function deleteWord(state,id) {
   state.words=state.words.filter(w=>w.id!==id);state.tasks=state.tasks.filter(t=>t.wordId!==id);state.events=state.events.filter(e=>e.wordId!==id);
+  for(const session of state.sessions){
+    if(!session.items.some(i=>i.wordId===id))continue;
+    const removedBefore=session.items.slice(0,session.index).filter(i=>i.wordId===id).length;
+    session.items=session.items.filter(i=>i.wordId!==id);
+    session.index=Math.min(session.items.length,session.index-removedBefore);
+    if(!session.settled&&session.index>=session.items.length)session.phase='review';
+  }
+}
+export const isExcluded = (state,english) => (state.excludedWords||[]).some(item=>item.key===normalize(english));
+export function dismissWord(state,id,date=day()) {
+  const word=state.words.find(w=>w.id===id);if(!word)return null;
+  const key=normalize(word.english);
+  const ids=new Set(state.words.filter(w=>normalize(w.english)===key).map(w=>w.id));
+  const capture=(items,match)=>items.flatMap((value,index)=>match(value)?[{index,value:clone(value)}]:[]);
+  const snapshot={key,wasExcluded:isExcluded(state,word.english),
+    words:capture(state.words,w=>ids.has(w.id)),tasks:capture(state.tasks,t=>ids.has(t.wordId)),
+    events:capture(state.events,e=>ids.has(e.wordId)),sessions:capture(state.sessions,s=>s.items.some(i=>ids.has(i.wordId)))};
+  ids.forEach(wordId=>deleteWord(state,wordId));
+  state.excludedWords??=[];
+  if(!snapshot.wasExcluded)state.excludedWords.push({key,removedOn:date});
+  return snapshot;
+}
+export function restoreDismissedWord(state,snapshot) {
+  // The caller exposes this only as the immediate, one-step learning undo.
+  const restore=(items,records)=>{for(const {index,value} of records)items.splice(Math.min(index,items.length),0,clone(value));};
+  restore(state.words,snapshot.words);restore(state.tasks,snapshot.tasks);restore(state.events,snapshot.events);
+  for(const {index,value} of snapshot.sessions){
+    const existing=state.sessions.findIndex(s=>s.id===value.id);
+    if(existing>=0)state.sessions[existing]=clone(value);else state.sessions.splice(Math.min(index,state.sessions.length),0,clone(value));
+  }
+  if(!snapshot.wasExcluded)state.excludedWords=(state.excludedWords||[]).filter(item=>item.key!==snapshot.key);
 }
 export function filterWords(words,filters={},today=day()) {
   return words.filter(w=>(!filters.search||`${w.english} ${w.chinese} ${w.example}`.toLowerCase().includes(filters.search.toLowerCase()))&&(!filters.type||w.type===filters.type)&&(!filters.level||overall(w)===filters.level)&&(!filters.star||w.isStarred)&&(!filters.wrong||isWrong(w))&&(!filters.date||w.importDate===filters.date)&&(!filters.days||w.importDate>=addDays(today,1-Number(filters.days))));
@@ -96,11 +128,11 @@ export function parseImport(text) {
   }); return {rows,errors};
 }
 export function importRows(state,rows,overwrite=false,date=day()) {
-  let added=0,updated=0,skipped=0;
-  for(const row of rows){const existing=state.words.find(w=>normalize(w.english)===normalize(row.english));
+  let added=0,updated=0,skipped=0,excluded=0;
+  for(const row of rows){if(isExcluded(state,row.english)){excluded++;continue;}const existing=state.words.find(w=>normalize(w.english)===normalize(row.english));
     if(existing){if(overwrite){Object.assign(existing,{english:row.english.trim(),chinese:row.chinese.trim(),type:row.type,example:row.example||existing.example,lastImportDate:date,isDemo:false});updated++;}else skipped++;}
     else{addWord(state,row,date);added++;}
-  } return {added,updated,skipped};
+  } return {added,updated,skipped,excluded};
 }
 export function makeDictation(state,{count=10,mix='mixed',filter=()=>true,practice=false,date=day()}={}) {
   const all=practice?state.words.filter(filter).flatMap(w=>ABILITIES.map(ability=>({wordId:w.id,ability,id:null}))):eligibleTasks(state,date,null,filter);
@@ -128,6 +160,11 @@ export function validateBackup(input) {
   const validDate=x=>typeof x==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(x)&&day(new Date(x+'T12:00:00'))===x;
   const validId=x=>typeof x==='string'&&/^[a-zA-Z0-9_-]{1,100}$/.test(x);
   if(!input||input.schemaVersion!==VERSION||!Array.isArray(input.words)||!Array.isArray(input.tasks)||!Array.isArray(input.events)||!Array.isArray(input.sessions)||!input.settings)throw new Error('不是此版本的随页备份文件');
+  const excluded=input.excludedWords??[];
+  if(!Array.isArray(excluded))throw new Error('不再出现记录无效');
+  const excludedKeys=new Set();
+  for(const item of excluded){if(!item||typeof item.key!=='string'||!item.key||normalize(item.key)!==item.key||excludedKeys.has(item.key)||!validDate(item.removedOn))throw new Error('不再出现记录无效');excludedKeys.add(item.key);}
+  if(input.words.some(w=>typeof w.english==='string'&&excludedKeys.has(normalize(w.english))))throw new Error('备份中的词条与不再出现记录冲突');
   const ids=new Set();
   for(const w of input.words){if(!validId(w.id)||ids.has(w.id)||typeof w.english!=='string'||!w.english.trim()||typeof w.chinese!=='string'||!w.chinese.trim()||!['word','phrase'].includes(w.type)||!validDate(w.importDate))throw new Error('词条字段无效或 ID 重复');ids.add(w.id);for(const a of ABILITIES){const p=w[a];if(!p||!Number.isInteger(p.stage)||p.stage<0||p.stage>6||!Number.isInteger(p.wrongCount)||p.wrongCount<0||!Number.isInteger(p.rightStreak)||!Number.isInteger(p.wrongStreak))throw new Error('学习进度字段无效');}}
   const taskIds=new Set(),active=new Set();
@@ -136,5 +173,5 @@ export function validateBackup(input) {
   const eventIds=new Set();for(const e of input.events){if(!validId(e.id)||eventIds.has(e.id)||!ids.has(e.wordId)||!ABILITIES.includes(e.ability)||!validDate(e.date)||typeof e.correct!=='boolean'||!['formal','practice','reinforcement'].includes(e.mode))throw new Error('练习记录无效');eventIds.add(e.id);}
   const sessionIds=new Set();for(const s of input.sessions){if(!validId(s.id)||sessionIds.has(s.id)||!Array.isArray(s.items)||!['paused','review','done','playing'].includes(s.phase)||!Number.isInteger(s.index)||s.index<0||s.index>s.items.length||typeof s.settled!=='boolean'||(!s.settled&&s.phase!=='review'&&s.index>=s.items.length))throw new Error('听写会话无效');sessionIds.add(s.id);for(const i of s.items)if(!validId(i.wordId)||!ABILITIES.includes(i.ability)||!['unplayed','played','skipped'].includes(i.status)||typeof i.english!=='string'||typeof i.chinese!=='string'||typeof i.correct!=='boolean'||!validId(i.eventId))throw new Error('听写题目无效');}
   if(!Number.isInteger(input.settings.newLimit)||input.settings.newLimit<0||input.settings.newLimit>100||![0.7,0.9,1].includes(input.settings.rate)||![1,2,3].includes(input.settings.repeats)||!Number.isFinite(input.settings.gap)||input.settings.gap<3||input.settings.gap>30)throw new Error('偏好设置无效');
-  return clone(input);
+  const result=clone(input);result.excludedWords??=[];return result;
 }
